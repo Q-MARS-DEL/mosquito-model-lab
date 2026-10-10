@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mosquito control model lab</title>
+<style>
+:root{--bg:#fff;--ink:#12302e;--muted:#4c6561;--grid:#d9e5e1;--panel:#eef5f2;--teal:#1f7a6d;--amber:#b86f0c;--crim:#b23a48;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1f1d;--ink:#e6f0ed;--muted:#9bb4af;--grid:#244340;--panel:#16302d;--teal:#4fc3b0;--amber:#f0b45a;--crim:#ef7a88}}
+:root[data-theme="dark"]{--bg:#0f1f1d;--ink:#e6f0ed;--muted:#9bb4af;--grid:#244340;--panel:#16302d;--teal:#4fc3b0;--amber:#f0b45a;--crim:#ef7a88}
+*{box-sizing:border-box}
+html{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+main{max-width:1080px;margin:0 auto;padding:28px 18px 48px}
+h1{font:700 clamp(26px,4vw,38px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 10px}
+p{margin:0 0 10px;max-width:70ch}
+.eq{font:700 clamp(20px,3vw,26px) Georgia,serif;color:var(--teal);margin:14px 0}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 22px;background:var(--panel);padding:16px 18px;border-radius:10px;margin:18px 0 12px}
+label{display:block;font-weight:600;font-size:15px}
+label output{float:right;font-variant-numeric:tabular-nums;color:var(--teal)}
+input[type=range]{width:100%;accent-color:var(--teal)}
+select,button{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid var(--muted);background:var(--bg);color:var(--ink);width:100%}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+#readout{font-size:17px;margin:6px 0 22px;min-height:3em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:26px 24px}
+figure{margin:0}
+canvas{width:100%;aspect-ratio:8/5;display:block;border:1px solid var(--grid);border-radius:6px}
+figcaption{font-size:14px;color:var(--muted);margin-top:6px}
+figcaption b{color:var(--ink)}
+footer{margin-top:30px;font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>Mosquito control model lab</h1>
+<p>Change the growth rate, carrying capacity and control effort, and watch all four graphs for Project 1 update together. The starting values come from a logistic fit to 2017 San Diego County trap counts: r = 1.48 per month and K = 61 mosquitoes per trap visit.</p>
+<div class="eq" id="eqtext">dP/dt = rP(1 − P/K) − h</div>
+
+<div class="controls">
+  <div><label for="m">Control model</label>
+    <select id="m"><option value="0">Constant removal: −h</option><option value="1">Proportional removal: −hP</option></select></div>
+  <div><label for="r">Growth rate r <output id="ro"></output></label><input id="r" type="range" min="0.2" max="3" step="0.01" value="1.48"></div>
+  <div><label for="K">Carrying capacity K <output id="Ko"></output></label><input id="K" type="range" min="20" max="150" step="1" value="61"></div>
+  <div><label for="h">Control effort h <output id="ho"></output></label><input id="h" type="range" min="0" max="40" step="0.1" value="10"></div>
+  <div style="align-self:end"><button id="reset" type="button">Clear added solutions</button></div>
+</div>
+<div id="readout" aria-live="polite"></div>
+
+<div class="grid">
+  <figure><canvas id="c1" role="img" aria-label="Phase line"></canvas><figcaption><b>Phase line.</b> Filled dots are stable equilibria, hollow dots are unstable. Arrows show which way P moves.</figcaption></figure>
+  <figure><canvas id="c2" role="img" aria-label="Autonomous derivative graph"></canvas><figcaption><b>Autonomous derivative graph.</b> dP/dt against P. Where the curve crosses zero, P is in equilibrium.</figcaption></figure>
+  <figure><canvas id="c3" role="img" aria-label="Slope field with solution curves"></canvas><figcaption><b>Slope field.</b> Click the graph to start a new solution at that population.</figcaption></figure>
+  <figure><canvas id="c4" role="img" aria-label="Bifurcation diagram"></canvas><figcaption><b>Bifurcation diagram.</b> Equilibria as h changes. The orange line marks your current h.</figcaption></figure>
+</div>
+<footer>Data: County of San Diego Department of Environmental Health, Vector Control Program, Routine Mosquito Surveillance Traps (CivicData), 2015–2018. Time is in months; P is the mean mosquitoes per trap visit.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const S={r:1.48,K:61,h:10,m:0,ics:[]};
+const F=(P,h=S.h)=>S.r*P*(1-P/S.K)-(S.m?h*P:h);
+const dF=(P,h)=>(F(P+1e-4,h)-F(P-1e-4,h))/2e-4;
+function eqs(h=S.h){const{r,K,m}=S;const a=[];
+  if(m){a.push(0);const p=K*(1-h/r);if(p>1e-6)a.push(p)}
+  else{const d=K*K-4*K*h/r;if(d>=0){const q=Math.sqrt(d);a.push((K-q)/2);if(q>1e-7)a.push((K+q)/2)}}
+  return a.map(P=>{const s=dF(P,h);return{P,st:Math.abs(s)<1e-5?null:s<0}})}
+const hcrit=()=>S.m?S.r:S.r*S.K/4;
+const col=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nice=r=>{const e=Math.pow(10,Math.floor(Math.log10(r))),f=r/e;return(f<1.5?1:f<3?2:f<7?5:10)*e};
+function frame(c,x0,x1,y0,y1,xl,yl,xt=true){
+  const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*d;c.height=h*d;
+  const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);
+  const L=50,R=14,T=12,B=40,X=v=>L+(v-x0)/(x1-x0)*(w-L-R),Y=v=>h-B-(v-y0)/(y1-y0)*(h-T-B);
+  x.font='12px "Segoe UI",system-ui,sans-serif';x.lineWidth=1;
+  const sx=nice((x1-x0)/6),sy=nice((y1-y0)/5);
+  x.strokeStyle=col('--grid');x.fillStyle=col('--muted');x.textAlign='center';
+  if(xt)for(let v=Math.ceil(x0/sx)*sx;v<=x1+1e-9;v+=sx){x.beginPath();x.moveTo(X(v),T);x.lineTo(X(v),h-B);x.stroke();x.fillText(+v.toFixed(2),X(v),h-B+15)}
+  x.textAlign='right';
+  for(let v=Math.ceil(y0/sy)*sy;v<=y1+1e-9;v+=sy){x.beginPath();x.moveTo(L,Y(v));x.lineTo(w-R,Y(v));x.stroke();x.fillText(+v.toFixed(2),L-6,Y(v)+4)}
+  x.textAlign='center';if(xl)x.fillText(xl,(L+w-R)/2,h-6);
+  x.save();x.translate(13,(T+h-B)/2);x.rotate(-Math.PI/2);x.fillText(yl,0,0);x.restore();
+  x.strokeStyle=col('--muted');x.strokeRect(L,T,w-L-R,h-T-B);
+  return{x,X,Y,w,h,L,R,T,B}}
+function dot(x,px,py,st,rad=6){x.beginPath();x.arc(px,py,rad,0,7);x.lineWidth=2.5;
+  const c=st===false?col('--crim'):st?col('--teal'):col('--amber');x.strokeStyle=c;x.fillStyle=st?c:col('--bg');x.fill();x.stroke()}
+const Pmax=()=>S.K*1.2;
+
+function phase(){const c=$('c1'),p=frame(c,0,1,0,Pmax(),'','P (mosquitoes per trap visit)',false),{x,Y,w}=p;
+  const cx=w/2+20;x.strokeStyle=col('--ink');x.lineWidth=3;x.beginPath();x.moveTo(cx,Y(0));x.lineTo(cx,Y(Pmax()));x.stroke();
+  const E=eqs(),b=[0,...E.map(e=>e.P),Pmax()].filter((v,i,a)=>i===0||v>a[i-1]+1e-6);
+  for(let i=0;i<b.length-1;i++){const m=(b[i]+b[i+1])/2,up=F(m)>0,y=Y(m);if(Math.abs(Y(b[i])-Y(b[i+1]))<26)continue;
+    x.fillStyle=col('--ink');x.beginPath();const s=up?-1:1;x.moveTo(cx,y+s*10);x.lineTo(cx-8,y-s*8);x.lineTo(cx+8,y-s*8);x.closePath();x.fill()}
+  x.textAlign='left';x.fillStyle=col('--ink');x.font='13px "Segoe UI",system-ui,sans-serif';
+  E.forEach(e=>{dot(x,cx,Y(e.P),e.st);x.fillText('P = '+e.P.toFixed(1)+(e.st===null?' (semi-stable)':e.st?' (stable)':' (unstable)'),cx+14,Y(e.P)+4)});
+  if(!E.length||E[0].P>1e-6){x.fillStyle=col('--muted');x.fillText('P = 0: extinct',cx+14,Y(0)-6)}}
+
+function deriv(){const c=$('c2'),n=200;let lo=0,hi=0;for(let i=0;i<=n;i++){const v=F(Pmax()*i/n);lo=Math.min(lo,v);hi=Math.max(hi,v)}
+  const pad=(hi-lo)*.1+.5,p=frame(c,0,Pmax(),lo-pad,hi+pad,'P (mosquitoes per trap visit)','dP/dt (per month)'),{x,X,Y}=p;
+  x.strokeStyle=col('--ink');x.lineWidth=1.5;x.beginPath();x.moveTo(X(0),Y(0));x.lineTo(X(Pmax()),Y(0));x.stroke();
+  x.strokeStyle=col('--teal');x.lineWidth=3;x.beginPath();for(let i=0;i<=n;i++){const P=Pmax()*i/n;i?x.lineTo(X(P),Y(F(P))):x.moveTo(X(P),Y(F(P)))}x.stroke();
+  eqs().forEach(e=>dot(x,X(e.P),Y(0),e.st))}
+
+function sol(P0,T=6){const o=[[0,P0]];let P=P0,t=0,dt=.02;while(t<T-1e-9&&P>0){const k1=F(P),k2=F(P+dt/2*k1),k3=F(P+dt/2*k2),k4=F(P+dt*k3);P+=dt/6*(k1+2*k2+2*k3+k4);t+=dt;if(P<=0){o.push([t,0]);break}o.push([t,P])}return o}
+function slope(){const c=$('c3'),p=frame(c,0,6,0,Pmax(),'t (months)','P (mosquitoes per trap visit)'),{x,X,Y,w,h,L,R,T,B}=p;
+  c._p={L,R,T,B,w,h};
+  const sx=(w-L-R)/6,sy=(h-T-B)/Pmax();x.lineWidth=1.3;x.strokeStyle=col('--muted');x.globalAlpha=.65;
+  for(let i=0;i<24;i++)for(let j=0;j<16;j++){const t=6*(i+.5)/24,P=Pmax()*(j+.5)/16,a=Math.atan2(-F(P)*sy,sx),dx=Math.cos(a)*9,dy=Math.sin(a)*9;
+    x.beginPath();x.moveTo(X(t)-dx,Y(P)-dy);x.lineTo(X(t)+dx,Y(P)+dy);x.stroke()}
+  x.globalAlpha=1;x.setLineDash([6,4]);x.lineWidth=2;
+  eqs().forEach(e=>{x.strokeStyle=e.st?col('--teal'):e.st===false?col('--crim'):col('--amber');x.beginPath();x.moveTo(L,Y(e.P));x.lineTo(w-R,Y(e.P));x.stroke()});
+  x.setLineDash([]);x.lineWidth=2.5;
+  [...[.05,.2,.4,.6,.8,1,1.15].map(f=>[f*S.K,col('--ink')]),...S.ics.map(P=>[P,col('--amber')])].forEach(([P0,cl])=>{
+    x.strokeStyle=cl;x.beginPath();sol(P0).forEach(([t,P],i)=>i?x.lineTo(X(t),Y(P)):x.moveTo(X(t),Y(P)));x.stroke()})}
+
+function bif(){const hm=hcrit()*1.5,c=$('c4'),p=frame(c,0,hm,0,S.K*1.1,'h (control effort per month)','Equilibrium P*'),{x,X,Y,T,h,B}=p;
+  const n=260;for(let i=0;i<=n;i++){const hh=hm*i/n;eqs(hh).forEach(e=>{
+    if(e.st){x.fillStyle=col('--teal');x.beginPath();x.arc(X(hh),Y(e.P),2,0,7);x.fill()}
+    else if(i%3<2){x.fillStyle=col('--crim');x.beginPath();x.arc(X(hh),Y(e.P),1.6,0,7);x.fill()}})}
+  x.strokeStyle=col('--amber');x.lineWidth=2;x.beginPath();x.moveTo(X(Math.min(S.h,hm)),T);x.lineTo(X(Math.min(S.h,hm)),h-B);x.stroke();
+  eqs().forEach(e=>dot(x,X(Math.min(S.h,hm)),Y(e.P),e.st,5));
+  x.fillStyle=col('--ink');x.textAlign='left';x.font='13px "Segoe UI",system-ui,sans-serif';
+  x.fillText('Tipping point h = '+hcrit().toFixed(1),X(hcrit())+8,Y(0)-8);
+  x.strokeStyle=col('--muted');x.setLineDash([4,4]);x.beginPath();x.moveTo(X(hcrit()),T);x.lineTo(X(hcrit()),h-B);x.stroke();x.setLineDash([])}
+
+function readout(){const E=eqs(),hc=hcrit();let t;
+  if(!E.length)t='No equilibria at this h: the population falls to zero.';
+  else t='Equilibria: '+E.map(e=>'P = '+e.P.toFixed(1)+(e.st===null?' (semi-stable)':e.st?' (stable)':' (unstable)')).join(', ')+'.';
+  t+=' Tipping point at h = '+(S.m?'r':'rK/4')+' = '+hc.toFixed(2)+'; '+(S.h>=hc?'your h is past it.':'your h is below it.');
+  $('readout').textContent=t}
+function draw(){['r','K','h'].forEach(k=>$(k+'o').textContent=(+S[k]).toFixed(k==='K'?0:2));
+  $('eqtext').textContent=S.m?'dP/dt = rP(1 − P/K) − hP':'dP/dt = rP(1 − P/K) − h';
+  readout();phase();deriv();slope();bif()}
+['r','K','h'].forEach(k=>$(k).addEventListener('input',e=>{S[k]=+e.target.value;draw()}));
+$('m').addEventListener('change',e=>{S.m=+e.target.value;const hs=$('h');
+  if(S.m){hs.max=3;hs.step=.01;S.h=.5}else{hs.max=40;hs.step=.1;S.h=10}hs.value=S.h;draw()});
+$('reset').addEventListener('click',()=>{S.ics=[];draw()});
+$('c3').addEventListener('click',e=>{const c=e.currentTarget,q=c._p,r=c.getBoundingClientRect(),py=e.clientY-r.top,px=e.clientX-r.left;
+  if(!q||px<q.L||px>q.w-q.R||py<q.T||py>q.h-q.B)return;S.ics.push(Pmax()*(q.h-q.B-py)/(q.h-q.T-q.B));draw()});
+addEventListener('resize',draw);matchMedia('(prefers-color-scheme:dark)').addEventListener('change',draw);
+draw();
+</script>
+</body>
+</html>
